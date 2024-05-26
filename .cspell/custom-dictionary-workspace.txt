@@ -1,0 +1,6 @@
+# Custom Dictionary Words
+loguru
+ripgrep
+ripgrepy
+submatch
+submatches

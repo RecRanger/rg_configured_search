@@ -1,0 +1,29 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "rg_configured_search"
+version = "0.1.0"
+authors = [{ name = "RecRanger", email = "RecRanger+package@proton.me" }]
+description = "Searcher"
+readme = "README.md"
+license = "BSD-3-Clause"
+requires-python = ">=3.10"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: BSD License",
+    "Operating System :: OS Independent",
+]
+
+dependencies = ["loguru", "ripgrepy", "pyyaml"]
+
+[project.optional-dependencies]
+dev = ["black", "flake8"]
+
+[project.urls]
+Homepage = "https://github.com/RecRanger/rg-file-searcher"
+Issues = "https://github.com/RecRanger/rg-file-searcher/issues"
+
+[project.scripts]
+rg_configured_search = "rg_configured_search.cli:main"

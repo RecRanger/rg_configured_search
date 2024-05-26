@@ -1,0 +1,21 @@
+- name: "Something"
+  val: "Something"
+  val_format: ascii
+  description_notes: The word 'Something', in 'binary_test_1.bin'
+  happiness_level: 1
+
+- name: "Example Hex Needle"
+  val: "69 97 36 CF C3"
+  val_format: hex
+  description_notes: Random hex in 'binary_test_1.bin'
+  happiness_level: 2
+  write_to_file: false
+
+- name: "Example Needle 3"
+  val: some_text_here
+  val_format: ascii
+  description_notes: "Some random text"
+  happiness_level: 2
+  write_to_file: false
+  byte_count_before_match: 512
+  byte_count_after_match: 4096

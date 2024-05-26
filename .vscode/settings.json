@@ -1,0 +1,20 @@
+{
+    "editor.formatOnSave": true,
+    "editor.rulers": [
+        79
+    ],
+    "flake8.args": [
+        "--max-line-length=79"
+    ],
+    "black-formatter.args": [
+        "--line-length=79"
+    ],
+    "cSpell.customDictionaries": {
+        "custom-dictionary-workspace": {
+            "name": "custom-dictionary-workspace",
+            "path": "${workspaceFolder}/.cspell/custom-dictionary-workspace.txt",
+            "addWords": true,
+            "scope": "workspace"
+        }
+    },
+}
