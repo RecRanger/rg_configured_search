@@ -47,8 +47,8 @@ def search_and_save_all_files(
     rg = ripgrepy.Ripgrepy(
         regex_pattern=combined_pattern, path=str(search_dir.absolute())
     )
-    # TODO: maybe add the "-a" flag equivalent ("treat binary files as text"??)
-    results = rg.byte_offset().binary().no_ignore().json().run().as_dict
+    # "-a"/"--text" flag: "treat binary files as text" - required for \x00 byte
+    results = rg.byte_offset().binary().no_ignore().text().json().run().as_dict
 
     logger.info(f"Search complete, found {len(results)} matches")
     logger.debug(json.dumps(results, indent=2))
