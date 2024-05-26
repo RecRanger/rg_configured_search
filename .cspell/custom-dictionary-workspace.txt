@@ -2,5 +2,6 @@
 loguru
 ripgrep
 ripgrepy
+startat
 submatch
 submatches

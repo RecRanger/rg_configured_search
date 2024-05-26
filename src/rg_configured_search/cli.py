@@ -3,6 +3,7 @@ from pathlib import Path
 
 from loguru import logger
 
+from rg_configured_search import __VERSION__
 from rg_configured_search.searcher import search_and_save_all_files
 from rg_configured_search.config_reader import load_config
 
@@ -39,6 +40,8 @@ def main():
 
     logger.add(Path(args.output_dir) / "searcher_info.log", level="INFO")
     logger.add(Path(args.output_dir) / "searcher_verbose.log")
+
+    logger.info(f"Running rg_configured_search, v{__VERSION__}")
 
     logger.info(
         f"Searching {args.search_dir} for patterns in {args.config_file}"
