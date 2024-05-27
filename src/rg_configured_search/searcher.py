@@ -54,6 +54,7 @@ def search_and_save_all_files(
     logger.debug(json.dumps(results, indent=2))
 
     running_submatch_count = 0
+    saved_to_file_count = 0
     # For each match, assign the match with the input SearchItem, and save the
     # match to a file (plus some bytes on each side of the match).
     for match_num, match in enumerate(results, 1):
@@ -108,6 +109,7 @@ def search_and_save_all_files(
                     output_dir=directory,
                     global_offset=global_offset,
                 )
+                saved_to_file_count += 1
 
             # store data to a jsonl file
             match_log_summary = {
@@ -130,7 +132,10 @@ def search_and_save_all_files(
             )
             running_submatch_count += 1
 
-    logger.info(f"Saved {len(results):,} matches to files.")
+    logger.info(
+        f"Reviewed all {running_submatch_count} matches. "
+        f"Saved {saved_to_file_count:,} matches to files."
+    )
 
 
 def _format_as_hex(value: int, width: int = 16) -> str:
