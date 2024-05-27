@@ -10,7 +10,10 @@ from rg_configured_search.config_reader import load_config
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Search for patterns in files."
+        description=(
+            f"rg_configured_search v{__VERSION__}: "
+            "Search for patterns in files."
+        )
     )
     parser.add_argument(
         "-s",

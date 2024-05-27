@@ -53,59 +53,84 @@ def search_and_save_all_files(
     logger.info(f"Search complete, found {len(results)} matches")
     logger.debug(json.dumps(results, indent=2))
 
+    running_submatch_count = 0
     # For each match, assign the match with the input SearchItem, and save the
     # match to a file (plus some bytes on each side of the match).
-    for match in results:
-        logger.info(f"Raw match from ripgrep: {json.dumps(match)}")
+    for match_num, match in enumerate(results, 1):
+        logger.debug(f"Raw match from ripgrep: {json.dumps(match)}")
         if match["type"] != "match":  # skip begin/end/summary, if they show up
             continue
         assert isinstance(match["data"]["submatches"], list)
         assert (
-            submatch_count := len(match["data"]["submatches"]) == 1
+            submatch_count := len(match["data"]["submatches"]) >= 1
         ), f"Unexpected number of submatches: {submatch_count}"
-        submatch = match["data"]["submatches"][0]
-        applicable_search_items = [
-            item
-            for item in search_items
-            if (
-                submatch["match"].get("text") == item.val
-                or base64.b64decode(submatch["match"].get("bytes", ""))
-                == item.val_as_bytes
-                or submatch["match"].get("text", "").encode("utf-8")
-                == item.val_as_bytes
+
+        # Iterate through all submatches, because if there are multiple matches
+        # found near each other, then they get sent as submatches.
+        for submatch in match["data"]["submatches"]:
+            applicable_search_items = [
+                item
+                for item in search_items
+                if (
+                    submatch["match"].get("text") == item.val
+                    or base64.b64decode(submatch["match"].get("bytes", ""))
+                    == item.val_as_bytes
+                    or submatch["match"].get("text", "").encode("utf-8")
+                    == item.val_as_bytes
+                )
+            ]
+            assert (
+                len(applicable_search_items) == 1
+            ), f"Matched unexpected number of search items: {applicable_search_items=} != 1"  # noqa
+            search_item = applicable_search_items[0]
+
+            source_file_path = Path(match["data"]["path"]["text"])
+
+            # dumb, but you have to add them together
+            global_offset = (
+                match["data"]["absolute_offset"] + submatch["start"]
             )
-        ]
-        assert (
-            len(applicable_search_items) == 1
-        ), f"Match matched multiple search items: {applicable_search_items}"
-        search_item = applicable_search_items[0]
 
-        source_file_path = Path(match["data"]["path"]["text"])
+            # Hash the file path to get a unique identifier for the file
+            # (not the best, but good enough)
+            source_file_path_hash = _md5sum(str(source_file_path.absolute()))
+            (
+                directory := (
+                    output_dir
+                    / f"{search_item.happiness_level}_{search_item.name}"
+                    / f"{source_file_path_hash}_{source_file_path.name.replace('.', '_')}"  # noqa
+                )
+            ).mkdir(parents=True, exist_ok=True)
+            if search_item.write_to_file:
+                save_match_to_file(
+                    search_item=search_item,
+                    source_file_path=source_file_path,
+                    output_dir=directory,
+                    global_offset=global_offset,
+                )
 
-        # dumb, but you have to add them together
-        global_offset = match["data"]["absolute_offset"] + submatch["start"]
+            # store data to a jsonl file
+            match_log_summary = {
+                "uuid": str(uuid.uuid4()),
+                "search_item": search_item.as_dict,
+                "source_file_path": str(source_file_path.absolute()),
+                "global_offset": global_offset,
+                "timestamp_utc": str(datetime.datetime.utcnow()),
+            }
+            match_log_summary_json = json.dumps(match_log_summary) + "\n"
+            with open(output_dir / "matches.jsonl", "a") as f:
+                f.write(match_log_summary_json)
+            with open(directory / "matches.jsonl", "a") as f:
+                f.write(match_log_summary_json)
+            logger.info(
+                f"Saved match {match_num:,}/{len(results):,} = "
+                f"{match_num/len(results):.1%} "
+                f"(submatch #{running_submatch_count:,}): "
+                + json.dumps(match_log_summary)
+            )
+            running_submatch_count += 1
 
-        save_match(
-            search_item=search_item,
-            source_file_path=source_file_path,
-            output_dir=output_dir,
-            global_offset=global_offset,
-        )
-
-        # store data to a jsonl file
-        match_log_summary = {
-            "uuid": str(uuid.uuid4()),
-            "search_item": search_item.as_dict,
-            "source_file_path": str(source_file_path.absolute()),
-            "global_offset": global_offset,
-            "timestamp_utc": str(datetime.datetime.utcnow()),
-        }
-        with open(output_dir / "matches.jsonl", "a") as f:
-            json.dump(match_log_summary, f)
-            f.write("\n")
-        logger.info(f"Saved match: {json.dumps(match_log_summary)}")
-
-    logger.info(f"Saved {len(results)} matches to files.")
+    logger.info(f"Saved {len(results):,} matches to files.")
 
 
 def _format_as_hex(value: int, width: int = 16) -> str:
@@ -120,17 +145,27 @@ def _format_as_hex(value: int, width: int = 16) -> str:
     return fmt_val
 
 
-def save_match(
+def save_match_to_file(
     search_item: SearchItem,
     source_file_path: Path,
     output_dir: Path,
-    global_offset: int,
+    global_offset: int,  # global offset of the start of the match
 ) -> None:
     """Save the match to a file in the specified output directory."""
-    # get the local_offset (number of bytes before the match)
-    local_offset = max(global_offset - search_item.byte_count_before_match, 0)
+    assert (
+        search_item.write_to_file
+    ), "Trying to write to file, but SearchItem has write_to_file disabled"
 
-    start_global_offset = global_offset - local_offset
+    # get the local_offset (number of bytes before the match)
+    if global_offset < search_item.byte_count_before_match:
+        # The offset is very close to the start of the file, so store from the
+        # start of the file.
+        byte_count_before_match = global_offset
+    else:
+        byte_count_before_match = search_item.byte_count_before_match
+
+    start_global_offset = global_offset - byte_count_before_match
+    assert start_global_offset >= 0
     end_global_offset = min(
         (
             global_offset
@@ -141,21 +176,11 @@ def save_match(
     )
     length_of_output_bytes = end_global_offset - start_global_offset
 
-    # Hash the file path to get a unique identifier for the file (good enough)
-    source_file_path_hash = _md5sum(str(source_file_path.absolute()))
-    (
-        directory := (
-            output_dir
-            / search_item.name
-            / f"{source_file_path_hash}_{source_file_path.name.replace('.', '_')}"  # noqa
-        )
-    ).mkdir(parents=True, exist_ok=True)
-
     hex_global = _format_as_hex(global_offset, 12)  # 12 is good for 2 TiB
-    hex_local = _format_as_hex(local_offset, 4)
+    hex_local = _format_as_hex(byte_count_before_match, 4)
 
     output_filename = f"found_g_0x{hex_global}_startat_0x{hex_local}.bin"
-    output_path = directory / output_filename
+    output_path = output_dir / output_filename
 
     with open(source_file_path, "rb") as source_file:
         source_file.seek(start_global_offset)
