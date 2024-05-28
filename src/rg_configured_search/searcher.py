@@ -48,7 +48,17 @@ def search_and_save_all_files(
         regex_pattern=combined_pattern, path=str(search_dir.absolute())
     )
     # "-a"/"--text" flag: "treat binary files as text" - required for \x00 byte
-    results = rg.byte_offset().binary().no_ignore().text().json().run().as_dict
+    results = (
+        rg.byte_offset()
+        .no_ignore()
+        .text()
+        .unrestricted()  # -uuu means "search EVERY file"
+        .unrestricted()
+        .unrestricted()
+        .json()
+        .run()
+        .as_dict
+    )
 
     logger.info(f"Search complete, found {len(results)} matches")
     logger.debug(json.dumps(results, indent=2))
