@@ -43,12 +43,12 @@ def search_and_save_all_files(
     logger.debug(f"Combined pattern: {combined_pattern}")
 
     # Perform the search using ripgrep
-    logger.info(f"Starting ripgrep search for {len(search_items)} patterns")
+    logger.info(f"Making ripgrep search for {len(search_items)} patterns")
     rg = ripgrepy.Ripgrepy(
         regex_pattern=combined_pattern, path=str(search_dir.absolute())
     )
     # "-a"/"--text" flag: "treat binary files as text" - required for \x00 byte
-    results = (
+    rg_command = (
         rg.byte_offset()
         .no_ignore()
         .text()
@@ -56,9 +56,9 @@ def search_and_save_all_files(
         .unrestricted()
         .unrestricted()
         .json()
-        .run()
-        .as_dict
     )
+    logger.info(f"Running ripgrep command: {rg_command.command}")
+    results = rg_command.run().as_dict
 
     logger.info(f"Search complete, found {len(results)} matches")
     logger.debug(json.dumps(results, indent=2))
