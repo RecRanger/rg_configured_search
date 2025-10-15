@@ -22,125 +22,105 @@ def search_and_save_all_files(
     """Search for all patterns in a single file using ripgrep and save matches
     according to the config.
     """
-    # Prepare the patterns for searching
-    patterns = []
-    for search_item in search_items:
-        # Note: the following if-statement isn't even technically necessary
-        #   because we could use the clean_hex_pattern_searchable property
-        #   for both ASCII and HEX searches (less readable though).
+
+    running_submatch_count = 0
+    saved_to_file_count = 0
+
+    for pattern_num, search_item in enumerate(search_items, 1):
         if search_item.val_format in ["ascii", "hex"]:
             # construct per https://github.com/BurntSushi/ripgrep/issues/2809
             # e.g., "(?-u:\\x01\\x02\\x03)"
             pattern = f"(?-u:{search_item.clean_hex_pattern_searchable})"
-        # elif search_item.val_format == "ascii":
-        #     pattern = f"({search_item.val})"  # ASCII format, used directly
         else:
             raise ValueError(f"Unsupported format: {search_item.val_format}")
-        patterns.append(pattern)
 
-    # Combine into a single regex pattern
-    combined_pattern = "|".join(patterns)
-    logger.debug(f"Combined pattern: {combined_pattern}")
+        # Perform the search using ripgrep
+        logger.info(
+            f"Starting ripgrep search for {pattern_num=}: {search_item}"
+        )
+        rg = ripgrepy.Ripgrepy(
+            regex_pattern=pattern, path=str(search_dir.absolute())
+        )
+        # "-a"/"--text" flag: "treat binary files as text" - required for \x00 byte
+        rg_command = (
+            rg.byte_offset()
+            .no_ignore()
+            .unrestricted()  # -uuu means "search EVERY file"
+            .unrestricted()
+            .unrestricted()
+            .text()  # must be right before run() to work
+            .json()
+        )
+        logger.info(f"Running ripgrep command: {rg_command.command}")
+        results = rg_command.run().as_dict
 
-    # Perform the search using ripgrep
-    logger.info(f"Making ripgrep search for {len(search_items)} patterns")
-    rg = ripgrepy.Ripgrepy(
-        regex_pattern=combined_pattern, path=str(search_dir.absolute())
-    )
-    # "-a"/"--text" flag: "treat binary files as text" - required for \x00 byte
-    rg_command = (
-        rg.byte_offset()
-        .no_ignore()
-        .text()
-        .unrestricted()  # -uuu means "search EVERY file"
-        .unrestricted()
-        .unrestricted()
-        .json()
-    )
-    logger.info(f"Running ripgrep command: {rg_command.command}")
-    results = rg_command.run().as_dict
+        logger.info(f"Search complete, found {len(results)} matches")
+        logger.debug(json.dumps(results, indent=2))
 
-    logger.info(f"Search complete, found {len(results)} matches")
-    logger.debug(json.dumps(results, indent=2))
-
-    running_submatch_count = 0
-    saved_to_file_count = 0
-    # For each match, assign the match with the input SearchItem, and save the
-    # match to a file (plus some bytes on each side of the match).
-    for match_num, match in enumerate(results, 1):
-        logger.debug(f"Raw match from ripgrep: {json.dumps(match)}")
-        if match["type"] != "match":  # skip begin/end/summary, if they show up
-            continue
-        assert isinstance(match["data"]["submatches"], list)
-        assert (
-            submatch_count := len(match["data"]["submatches"]) >= 1
-        ), f"Unexpected number of submatches: {submatch_count}"
-
-        # Iterate through all submatches, because if there are multiple matches
-        # found near each other, then they get sent as submatches.
-        for submatch in match["data"]["submatches"]:
-            applicable_search_items = [
-                item
-                for item in search_items
-                if (
-                    submatch["match"].get("text") == item.val
-                    or base64.b64decode(submatch["match"].get("bytes", ""))
-                    == item.val_as_bytes
-                    or submatch["match"].get("text", "").encode("utf-8")
-                    == item.val_as_bytes
-                )
-            ]
+        # For each match, assign the match with the input SearchItem, and save the
+        # match to a file (plus some bytes on each side of the match).
+        for match_num, match in enumerate(results, 1):
+            logger.debug(f"Raw match from ripgrep: {json.dumps(match)}")
+            if (
+                match["type"] != "match"
+            ):  # skip begin/end/summary, if they show up
+                continue
+            assert isinstance(match["data"]["submatches"], list)
             assert (
-                len(applicable_search_items) == 1
-            ), f"Matched unexpected number of search items: {applicable_search_items=} != 1"  # noqa
-            search_item = applicable_search_items[0]
+                submatch_count := len(match["data"]["submatches"]) >= 1
+            ), f"Unexpected number of submatches: {submatch_count}"
 
-            source_file_path = Path(match["data"]["path"]["text"])
+            # Iterate through all submatches, because if there are multiple matches
+            # found near each other, then they get sent as submatches.
+            for submatch in match["data"]["submatches"]:
+                source_file_path = Path(match["data"]["path"]["text"])
 
-            # dumb, but you have to add them together
-            global_offset = (
-                match["data"]["absolute_offset"] + submatch["start"]
-            )
-
-            # Hash the file path to get a unique identifier for the file
-            # (not the best, but good enough)
-            source_file_path_hash = _md5sum(str(source_file_path.absolute()))
-            (
-                directory := (
-                    output_dir
-                    / f"{search_item.happiness_level}_{search_item.name}"
-                    / f"{source_file_path_hash}_{source_file_path.name.replace('.', '_')}"  # noqa
+                # dumb, but you have to add them together
+                global_offset = (
+                    match["data"]["absolute_offset"] + submatch["start"]
                 )
-            ).mkdir(parents=True, exist_ok=True)
-            if search_item.write_to_file:
-                save_match_to_file(
-                    search_item=search_item,
-                    source_file_path=source_file_path,
-                    output_dir=directory,
-                    global_offset=global_offset,
-                )
-                saved_to_file_count += 1
 
-            # store data to a jsonl file
-            match_log_summary = {
-                "uuid": str(uuid.uuid4()),
-                "search_item": search_item.as_dict,
-                "source_file_path": str(source_file_path.absolute()),
-                "global_offset": global_offset,
-                "timestamp_utc": str(datetime.datetime.utcnow()),
-            }
-            match_log_summary_json = json.dumps(match_log_summary) + "\n"
-            with open(output_dir / "matches.jsonl", "a") as f:
-                f.write(match_log_summary_json)
-            with open(directory / "matches.jsonl", "a") as f:
-                f.write(match_log_summary_json)
-            logger.info(
-                f"Saved match {match_num:,}/{len(results):,} = "
-                f"{match_num/len(results):.1%} "
-                f"(submatch #{running_submatch_count:,}): "
-                + json.dumps(match_log_summary)
-            )
-            running_submatch_count += 1
+                # Hash the file path to get a unique identifier for the file
+                # (not the best, but good enough)
+                source_file_path_hash = _md5sum(
+                    str(source_file_path.absolute())
+                )
+                (
+                    directory := (
+                        output_dir
+                        / f"{search_item.happiness_level}_{search_item.name}"
+                        / f"{source_file_path_hash}_{source_file_path.name.replace('.', '_')}"  # noqa
+                    )
+                ).mkdir(parents=True, exist_ok=True)
+                if search_item.write_to_file:
+                    save_match_to_file(
+                        search_item=search_item,
+                        source_file_path=source_file_path,
+                        output_dir=directory,
+                        global_offset=global_offset,
+                    )
+                    saved_to_file_count += 1
+
+                # store data to a jsonl file
+                match_log_summary = {
+                    "uuid": str(uuid.uuid4()),
+                    "search_item": search_item.as_dict,
+                    "source_file_path": str(source_file_path.absolute()),
+                    "global_offset": global_offset,
+                    "timestamp_utc": str(datetime.datetime.utcnow()),
+                }
+                match_log_summary_json = json.dumps(match_log_summary) + "\n"
+                with open(output_dir / "matches.jsonl", "a") as f:
+                    f.write(match_log_summary_json)
+                with open(directory / "matches.jsonl", "a") as f:
+                    f.write(match_log_summary_json)
+                logger.info(
+                    f"Saved match {match_num:,}/{len(results):,} = "
+                    f"{match_num/len(results):.1%} "
+                    f"(submatch #{running_submatch_count:,}): "
+                    + json.dumps(match_log_summary)
+                )
+                running_submatch_count += 1
 
     logger.info(
         f"Reviewed all {running_submatch_count} matches. "

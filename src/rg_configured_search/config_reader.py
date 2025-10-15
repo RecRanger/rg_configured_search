@@ -38,6 +38,11 @@ class SearchItem:
             )
 
     @cached_property
+    def val_as_hex(self) -> str:
+        """Return the lowercase hex value without any whitespace."""
+        return self.val_as_bytes.hex()
+
+    @cached_property
     def clean_hex_pattern_searchable(self) -> str:
         """Return the lowercase hex value without any whitespace, with \\x prefixes."""  # noqa
         assert self.val_format in ["ascii", "hex"]
@@ -60,6 +65,15 @@ class SearchItem:
             "byte_count_before_match": self.byte_count_before_match,
             "byte_count_after_match": self.byte_count_after_match,
         }
+
+    def __repr__(self) -> str:
+        if self.val_format == "ascii":
+            val_str = self.val
+        elif self.val_format == "hex":
+            val_str = self.val_as_bytes.hex()
+        else:
+            raise NotImplementedError(f"repr for val_format={self.val_format}")
+        return f"{self.__class__.__name__}(name={self.name}, val={val_str})"
 
 
 def load_config(yaml_file: str | Path) -> list[SearchItem]:
